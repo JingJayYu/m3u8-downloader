@@ -1,0 +1,271 @@
+#!/usr/bin/env python
+'''
+#-------------------------------------------------------------------
+#
+#                   @Project Name : 多程序M3U8影片下載助手
+#
+#                   @File Name    : m3u8_download.pyo.py
+#
+#                   @Programmer   : Felix
+#
+#                   @editor       : JayYu
+#
+#-------------------------------------------------------------------
+'''
+from genericpath import isdir
+from itertools import count
+from mimetypes import suffix_map
+from posixpath import dirname
+import requests, os, platform, time
+from Crypto.Cipher import AES
+import multiprocessing
+from retrying import retry
+from tqdm import tqdm
+import shutil
+
+class M3u8:
+    '''
+     This is a main Class, the file contains all documents.
+     One document contains paragraphs that have several sentences
+     It loads the original file and converts the original file to new content
+     Then the new content will be saved by this class
+    '''
+    def __init__(self):
+        '''
+        Initial the custom file by self
+        '''
+        self.encrypt = False
+        self.headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:78.0) Gecko/20100101 Firefox/78.0"
+        }
+
+    def hello(self):
+        '''
+        This is a welcome speech
+        :return: self
+        '''
+        print("-" * 50)
+        print("")
+        print(' ' * 15 + '.m3u8連結下載器')
+        print(' ' * 10 + '作者: Felix   改編者: JayYu')
+        print(' ' * 20 + '適用於')
+        print(' ' * 15 + '非加密 | 加密連結')
+        print("")
+        print("-" * 50)
+        return self
+
+    def checkUrl(self, url):
+        '''
+        Determine if it is a available link of m3u8
+        :return: bool
+        '''
+        if '.m3u8' not in url:
+            return False
+        elif not url.startswith('http'):
+            return False
+        else:
+            return True
+
+    def parse(self, url):
+        '''
+        Analyze a link of m3u8
+        :param url: string, the link need to analyze
+        :return: list
+        '''
+        container = list()
+        response = self.request(url).text.split('\n')
+        for ts in response:
+            if '.ts' in ts:
+                container.append(ts)
+            if '#EXT-X-KEY:' in ts:
+                self.encrypt = True
+        return container
+
+    def getEncryptKey(self, url):
+        '''
+        Access to the secret key
+        :param url: string, Access to the secret key by the url
+        :return: string
+        '''
+        encryptKey = self.request("{}/key.key".format(url)).content
+        return encryptKey
+
+    def aesDecode(self, data, key):
+        '''
+        Decode the data
+        :param data: stream, the data need to decode
+        :param key: secret key
+        :return: decode the data
+        '''
+        crypt = AES.new(key, AES.MODE_CBC, key)
+        plain_text = crypt.decrypt(data)
+        return plain_text.rstrip(b'\0')
+
+    def download(self, queue, sort, file, downPath, url):
+        '''
+        Download the debris of video
+        :param queue: the queue
+        :param sort: which number debris
+        :param file: the link of debris
+        :param downPath: the path to save debris
+        :param url: the link of m3u8
+        :return: None
+        '''
+        queue.put(file)
+
+        baseUrl = '/'.join(url.split("/")[:-1])
+
+        if self.encrypt:
+            self.encryptKey = self.getEncryptKey(baseUrl)
+
+        if not file.startswith("http"):
+            file = baseUrl + '/' +file
+
+        debrisName = "{}/{}.ts".format(downPath, sort)
+
+        if not os.path.exists(debrisName):
+            response = self.request(file)
+            with open(debrisName, "wb") as f:
+                if self.encrypt:
+                    data = self.aesDecode(response.content, self.encryptKey)
+                    f.write(data)
+                    f.flush()
+                else:
+                    f.write(response.content)
+                    f.flush()
+
+    def progressBar(self, queue, count):
+        '''
+        Show progress bar
+        :param queue: the queue
+        :param count: the number count of debris
+        :return: None
+        '''
+        
+        print('---共{}個碎片...'.format(count))
+        offset = 0
+        # while True:
+        #     offset += 1
+        #     file = queue.get()
+        #     rate = offset * 100 / count
+        #     print("\r%s下載成功，當前進度%0.2f%%, 第%s/%s個" % (file, rate, offset, count))
+        #     if offset >= count:
+        #         break
+
+        for i in tqdm(range(round(count)),desc="---檔案下載中...", ncols=100,colour="blue", unit_scale=True, disable=False):
+            offset += 1
+            file = queue.get()
+            rate = offset * 100 / count
+            if offset > count:
+                break
+
+
+    @retry(stop_max_attempt_number=3)
+    def request(self, params):
+        '''
+        Send a request
+        :param url: the url of request
+        :param params: the params of request
+        :return: the result of request
+        '''
+        response = requests.get(params, params=params, headers=self.headers, timeout=10)
+        assert response.status_code == 200
+        return response
+
+    def run(self):
+        '''
+        program entry, Input basic information
+        '''
+        if not os.path.isdir(m3u8_path):
+            os.makedirs(m3u8_path)
+        print("影片儲存位置: " + savePath)
+        print("影片儲存格式: " + saveSuffix)
+
+        while True:
+            url = str(input("請輸入m3u8連結： "))
+            if self.checkUrl(url):
+                break
+
+        # create a not available folder
+        if not os.path.exists(downPath):
+            os.mkdir(downPath)
+
+        if not os.path.exists(savePath):
+            os.mkdir(savePath)
+
+        # start analyze a link of m3u8
+        print('---正在分析連結...')
+        while True:
+            try:
+                container = self.parse(url)
+                break
+            except:
+                print('---正在分析連結...')
+            
+        print('---連結分析成功...')
+
+        # run processing to do something
+        print('---程序開始執行...')
+        po = multiprocessing.Pool(30)
+        queue = multiprocessing.Manager().Queue()
+        size = 0
+        for file in container:
+            sort = str(size).zfill(5)
+            po.apply_async(self.download, args=(queue, sort, file, downPath, url,))
+            size += 1
+
+        po.close()
+        self.progressBar(queue, len(container))
+        print('---檔案下載完成...')
+
+        # handler debris
+        sys = platform.system()
+        saveName = time.strftime("%Y%m%d_%H%M%S", time.localtime())
+
+        while True:
+            nums_ts = len([f for f in os.listdir(downPath)
+                if os.path.isfile(os.path.join(downPath, f))])
+            if nums_ts == len(container):
+                break
+            else:
+                time.sleep(5)
+                print("---等待檔案傳輸...")
+            
+
+        print('---檔案合併中...')
+        if sys == "Windows":
+            os.system("copy /b {}\*.ts {}\{}.ts".format(downPath, savePath, saveName))
+            if saveSuffix == "mp3":
+                quality = input("下載高音質? 預設:True: ").lower().strip() or "true"
+                if quality == "false":
+                    os.system("C:\\ffmpeg\\bin\\ffmpeg -i {0}\{1}.ts {0}\{1}.{2}".format(savePath, saveName, saveSuffix))
+                else:
+                    os.system("C:\\ffmpeg\\bin\\ffmpeg -i {0}\{1}.ts -b:a 192K -vn {0}\{1}.{2}".format(savePath, saveName, saveSuffix))
+            else:
+                os.system("C:\\ffmpeg\\bin\\ffmpeg -i {0}\{1}.ts -map 0 -c copy {0}\{1}.{2}".format(savePath, saveName, saveSuffix))
+            print("---清除碎片中...")
+            os.system("rmdir /s/q {}".format(downPath))
+            os.remove("%s\\%s.ts"%(savePath, saveName))
+        else:
+            os.system("cat {}/*.ts>{}/{}.{}".format(downPath, savePath, saveName, saveSuffix))
+            os.system("rm -rf {}".format(downPath))
+        print('---檔案下載完成...\n')
+        # print('---歡迎再次使用...')
+
+if __name__ == "__main__":
+    # Edit 257 and 258 for yourself
+    m3u8_path = r"C:\m3u8"
+    video_path = r"E:\Video\m3u8"
+    # Dont edit other things if you dont know what are you doing
+    downPath = os.path.join(m3u8_path, time.strftime("%Y%m%d_%H%M%S", time.localtime())+"_scrap")
+    savePath = str(input("影片的儲存路徑, 預設 " + video_path + " ")) or video_path
+    saveSuffix = str(input("影片格式, 預設 mp4： ").strip().lower()) or "mp4"
+    while True:
+        # M3u8().hello()
+        M3u8().run()
+        if input("輸入 r 重設路徑，若不需要按Enter跳過").strip().lower() == "r":
+            os.system("cls")
+            savePath = str(input("影片的儲存路徑, 預設 " + video_path + " ")) or video_path
+            saveSuffix = str(input("影片格式, 預設 mp4： ").strip().lower()) or "mp4"
+        else:
+            os.system("cls")
