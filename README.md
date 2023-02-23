@@ -1,6 +1,6 @@
 # m3u8-downloader
 
-.m3u8 Downloader Basic on Python. <br/>
+This .m3u8 Downloader is Basic on Python. <br/>
 
 This downloader uses these modules (pycryptodome, retrying, tqdm, requests). <br/>
 
