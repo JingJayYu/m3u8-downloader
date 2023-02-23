@@ -9,6 +9,7 @@ pip install pycryptodome
 pip install retrying
 pip install tqdm
 pip install requests
+
 ==================================================================
 
 *important
