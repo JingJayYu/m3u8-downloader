@@ -1,0 +1,236 @@
+#!/usr/bin/env python
+
+import requests, os, platform, time
+from Crypto.Cipher import AES
+import multiprocessing
+from retrying import retry
+from tqdm import tqdm
+
+class M3u8:
+    '''
+     This is a main Class, the file contains all documents.
+     One document contains paragraphs that have several sentences
+     It loads the original file and converts the original file to new content
+     Then the new content will be saved by this class
+    '''
+    def __init__(self):
+        '''
+        Initial the custom file by self
+        '''
+        self.encrypt = False
+        self.headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:78.0) Gecko/20100101 Firefox/78.0"
+        }
+
+    def checkUrl(self, url):
+        '''
+        Determine if it is a available link of m3u8
+        :return: bool
+        '''
+        if '.m3u8' not in url:
+            return False
+        elif not url.startswith('http'):
+            return False
+        else:
+            return True
+
+    def parse(self, url):
+        '''
+        Analyze a link of m3u8
+        :param url: string, the link need to analyze
+        :return: list
+        '''
+        container = list()
+        response = self.request(url).text.split('\n')
+        for ts in response:
+            if '.ts' in ts:
+                container.append(ts)
+            if '#EXT-X-KEY:' in ts:
+                self.encrypt = True
+        return container
+
+    def getEncryptKey(self, url):
+        '''
+        Access to the secret key
+        :param url: string, Access to the secret key by the url
+        :return: string
+        '''
+        encryptKey = self.request("{}/key.key".format(url)).content
+        return encryptKey
+
+    def aesDecode(self, data, key):
+        '''
+        Decode the data
+        :param data: stream, the data need to decode
+        :param key: secret key
+        :return: decode the data
+        '''
+        crypt = AES.new(key, AES.MODE_CBC, key)
+        plain_text = crypt.decrypt(data)
+        return plain_text.rstrip(b'\0')
+
+    def download(self, queue, sort, file, downPath, url):
+        '''
+        Download the debris of video
+        :param queue: the queue
+        :param sort: which number debris
+        :param file: the link of debris
+        :param downPath: the path to save debris
+        :param url: the link of m3u8
+        :return: None
+        '''
+        queue.put(file)
+
+        baseUrl = '/'.join(url.split("/")[:-1])
+
+        if self.encrypt:
+            self.encryptKey = self.getEncryptKey(baseUrl)
+
+        if not file.startswith("http"):
+            file = baseUrl + '/' +file
+
+        debrisName = "{}/{}.ts".format(downPath, sort)
+
+        if not os.path.exists(debrisName):
+            response = self.request(file)
+            with open(debrisName, "wb") as f:
+                if self.encrypt:
+                    data = self.aesDecode(response.content, self.encryptKey)
+                    f.write(data)
+                    f.flush()
+                else:
+                    f.write(response.content)
+                    f.flush()
+
+    def progressBar(self, queue, count):
+        '''
+        Show progress bar
+        :param queue: the queue
+        :param count: the number count of debris
+        :return: None
+        '''
+        
+        print('---Total: {} .ts files...'.format(count))
+
+        for i in tqdm(range(round(count)),desc="---.ts downloading... ", ncols=100,colour="blue", unit_scale=True, disable=False):
+            while True:
+                nums_ts = len([f for f in os.listdir(downPath)
+                if os.path.isfile(os.path.join(downPath, f))])
+                if i < nums_ts:
+                    break
+            
+            
+
+
+    @retry(stop_max_attempt_number=3)
+    def request(self, params):
+        '''
+        Send a request
+        :param url: the url of request
+        :param params: the params of request
+        :return: the result of request
+        '''
+        response = requests.get(params, params=params, headers=self.headers, timeout=10)
+        assert response.status_code == 200
+        return response
+
+    def run(self):
+        '''
+        program entry, Input basic information
+        '''
+        if not os.path.isdir(m3u8_path):
+            os.makedirs(m3u8_path)
+        if not os.path.isdir(video_path):
+            os.makedirs(video_path)
+        print("Video save path: " + savePath)
+        print("Video save type: " + saveSuffix)
+
+        while True:
+            url = str(input("Input a m3u8 url: "))
+            if self.checkUrl(url):
+                break
+
+        # create a not available folder
+        if not os.path.exists(downPath):
+            os.mkdir(downPath)
+
+        if not os.path.exists(savePath):
+            os.mkdir(savePath)
+
+        # start analyze a link of m3u8
+        
+        except_tmp = 1
+        
+        while True:
+            try:
+                container = self.parse(url)
+                print('---Connect success...')
+                break
+            except:
+                print('---Connecting', except_tmp,'...')
+                except_tmp += 1
+                if except_tmp == 4:
+                    except_tmp = 0
+                    while True:
+                        print('---Connecting fail')
+                        url = str(input("Input a m3u8 url: "))
+                        if self.checkUrl(url):
+                            break
+
+        
+
+        # run processing to do something
+        print('---Program start...')
+        po = multiprocessing.Pool(30)
+        queue = multiprocessing.Manager().Queue()
+        size = 0
+        for file in container:
+            sort = str(size).zfill(5)
+            po.apply_async(self.download, args=(queue, sort, file, downPath, url,))
+            size += 1
+
+        po.close()
+        self.progressBar(queue, len(container))
+        print('---Total .ts file have downloaded...')
+
+        # handler debris
+        sys = platform.system()
+        saveName = time.strftime("%Y%m%d_%H%M%S", time.localtime())            
+
+        print('---Video merging...')
+        if sys == "Windows":
+            os.system("copy /b {}\*.ts {}\{}.ts".format(downPath, savePath, saveName))
+            if saveSuffix == "mp3":
+                quality = input("High quality? (default:true) : ").lower().strip() or "true"
+                if quality == "false":
+                    os.system("C:\\ffmpeg\\bin\\ffmpeg -i {0}\{1}.ts {0}\{1}.{2}".format(savePath, saveName, saveSuffix))
+                else:
+                    os.system("C:\\ffmpeg\\bin\\ffmpeg -i {0}\{1}.ts -b:a 192K -vn {0}\{1}.{2}".format(savePath, saveName, saveSuffix))
+            else:
+                os.system("C:\\ffmpeg\\bin\\ffmpeg -i {0}\{1}.ts -map 0 -c copy {0}\{1}.{2}".format(savePath, saveName, saveSuffix))
+            print("\n\n---Deleting .ts files...")
+            os.system("rmdir /s/q {}".format(downPath))
+            os.remove("%s\\%s.ts"%(savePath, saveName))
+        else:
+            os.system("cat {}/*.ts>{}/{}.{}".format(downPath, savePath, saveName, saveSuffix))
+            os.system("rm -rf {}".format(downPath))
+        print('\n---Video have downloaded...\n')
+
+if __name__ == "__main__":
+
+    m3u8_path = r"C:\ffmpeg\m3u8"
+    home = os.path.expanduser("~")
+    video_path = os.path.join(home, "Videos", "m3u8_Downloader")
+    # Dont edit other things if you dont know what are you doing
+    downPath = os.path.join(m3u8_path, time.strftime("%Y%m%d_%H%M%S", time.localtime())+"_scrap")
+    savePath = str(input("Video save path, (default: " + video_path + ") : ")) or video_path
+    saveSuffix = str(input("Video save type, (default mp4) ： ").strip().lower()) or "mp4"
+    os.system("cls")
+    while True:
+        M3u8().run()
+        if input("Enter R to reset save path, if don't need just press Enter: ").strip().lower() == "r":
+            os.system("cls")
+            savePath = str(input("Video save path, (default: " + video_path + ") : ")) or video_path
+            saveSuffix = str(input("Video save type, (default mp4) ： ").strip().lower()) or "mp4"
+        
+        os.system("cls")
