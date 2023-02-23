@@ -1,6 +1,6 @@
+# m3u8-downloader
 
 .m3u8 Downloader Basic on Python. <br/>
-
 ================================================================== <br/>
 This downloader uses these modules (pycryptodome, retrying, tqdm, requests). <br/>
 
@@ -8,6 +8,7 @@ pip install pycryptodome <br/>
 pip install retrying <br/>
 pip install tqdm <br/>
 pip install requests <br/>
+
 ==================================================================
 
 *important <br/>
